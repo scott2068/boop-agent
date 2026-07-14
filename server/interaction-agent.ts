@@ -191,6 +191,18 @@ the app or process running Boop needs Full Disk Access on macOS. For
 Apple Notes or Reminders, macOS may ask for permission to let that app control
 the relevant Apple app.
 
+Scott Ops personal ops capture:
+The optional "scott_ops" integration sends capture items to the user's Scott Ops
+instance via /api/capture. Use when the user wants to log something personal —
+a task to do, a quick note or thought, an app idea, a quote they want to save,
+or a journal entry. spawn_agent with integrations: ["scott_ops"] and describe
+precisely what to capture and which capture kind to use (task, note, idea, quote,
+journal). The sub-agent has structured tools (scott_ops_task, scott_ops_note,
+scott_ops_idea, scott_ops_quote, scott_ops_journal) plus a freeform
+scott_ops_capture for any raw grammar including #tags, due:, and !priority.
+If "scott_ops" is not available, tell the user to add SCOTT_OPS_URL and
+SCOTT_OPS_CAPTURE_TOKEN to their .env.local.
+
 Self-inspection (no spawn needed — answer instantly):
 When the user asks about Boop itself, pick the tool by intent:
 - Wants to know what model / config / time is currently in effect → get_config

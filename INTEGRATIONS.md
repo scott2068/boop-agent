@@ -4,6 +4,8 @@ Boop's integrations are provided by [Composio](https://composio.dev/?utm_source=
 
 There is one built-in non-Composio integration: **Local browser use**. It registers as `browser` only when enabled in the debug dashboard and gives spawned agents a local Patchright Chrome profile for login-required services, visual workflows, JS-heavy pages, or sites that may detect ordinary automation.
 
+There is also a native **Scott Ops** integration (`scott_ops`) that captures tasks, notes, ideas, quotes, and journal entries directly to a self-hosted Scott Ops instance via its `/api/capture` endpoint. It requires no Composio account — just two env vars.
+
 You don't write integration code. You:
 
 1. Put `COMPOSIO_API_KEY` in `.env.local`.
@@ -64,6 +66,57 @@ Settings live under **Settings → Local browser use**:
 Boop does not store third-party passwords or OAuth tokens for this feature. Login state lives in the selected local Chrome profile.
 
 Browser control HTTP routes are local-only and reject public tunnel requests before launching, closing, installing, or inspecting Chrome. The `browser_fill` tool also redacts typed values before tool-use arguments are persisted to Convex logs.
+
+---
+
+## Scott Ops (native personal ops capture)
+
+Scott Ops is registered by `server/integrations/scott-ops-loader.ts`. It is enabled when both `SCOTT_OPS_URL` and `SCOTT_OPS_CAPTURE_TOKEN` are present in the environment. No Composio account required.
+
+### Setup
+
+1. Generate a capture token in your Scott Ops instance: **Settings → Capture tokens → New token**.
+2. Add two vars to `.env.local`:
+   ```
+   SCOTT_OPS_URL=https://your-scott-ops-instance.vercel.app
+   SCOTT_OPS_CAPTURE_TOKEN=sot_...
+   ```
+3. Restart Boop (`npm run dev`). The `scott_ops` integration appears in `list_integrations`.
+
+### When disabled
+
+- `scott_ops` is absent from `listEnabledIntegrations()`.
+- The dispatcher tells users to set `SCOTT_OPS_URL` and `SCOTT_OPS_CAPTURE_TOKEN` in `.env.local`.
+
+### When enabled
+
+- The dispatcher routes personal ops requests (tasks, notes, ideas, quotes, journal entries) to `spawn_agent(integrations: ["scott_ops"])`.
+- Execution agents receive an MCP server named `scott_ops` with these tools:
+
+| Tool | Compiles to |
+|---|---|
+| `scott_ops_capture` | Raw freeform capture text (full grammar) |
+| `scott_ops_task` | `task: <title> [#tag...] [due:X] [!priority]` |
+| `scott_ops_note` | `note: <body> [#tag...]` |
+| `scott_ops_idea` | `idea: <title>` |
+| `scott_ops_quote` | `quote: "<text>" — Author[, sourcetype]` |
+| `scott_ops_journal` | `journal: <text>` |
+
+The raw `scott_ops_capture` tool accepts the full Scott Ops grammar including `song:` and `set:` prefixes for the worship module.
+
+### Capture grammar reference
+
+```
+task: fix login bug #trm due:fri !high
+note: interesting idea about caching #dev
+idea: offline mode for Recap
+quote: "Faith is confidence in what we hope for" — Hebrews 11:1, book
+journal: today was productive and focused
+song: Great Are You Lord — All Sons & Daughters key A
+set: add Cornerstone to Sunday
+```
+
+Capture never fails: if a #tag is unknown, the item is queued for review; executor failures fall back to an Inbox task preserving the raw text.
 
 ---
 
