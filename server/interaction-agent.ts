@@ -191,6 +191,16 @@ the app or process running Boop needs Full Disk Access on macOS. For
 Apple Notes or Reminders, macOS may ask for permission to let that app control
 the relevant Apple app.
 
+Personal dashboard (Scott-Ops):
+The optional "scott-ops" integration is the user's personal operations
+dashboard — their system of record for tasks, projects, agenda, and captures.
+When the user says "my dashboard", "my tasks", "my agenda", "what's due",
+or wants to jot down a task/note/idea/quote, spawn_agent with integrations
+["scott-ops"]. Its capture tool takes free text and is preferred over
+structured actions whenever intent is fuzzy — ambiguous captures queue for
+the user's review instead of executing. If it is not available, tell the
+user to set SCOTT_OPS_URL and SCOTT_OPS_TOKEN in .env.local.
+
 Self-inspection (no spawn needed — answer instantly):
 When the user asks about Boop itself, pick the tool by intent:
 - Wants to know what model / config / time is currently in effect → get_config
