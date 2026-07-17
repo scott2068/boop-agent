@@ -484,7 +484,9 @@ function extractAccountIdentity(state: unknown, data: unknown): AccountIdentity 
 export async function renameConnection(connectionId: string, alias: string): Promise<void> {
   const composio = getComposio();
   if (!composio) throw new Error("COMPOSIO_API_KEY not set");
-  await composio.connectedAccounts.update(connectionId, { alias });
+  // core's connectedAccounts.update() only toggles enabled now; alias moved to patch.
+  const apiClient = new ComposioApiClient({ apiKey: process.env.COMPOSIO_API_KEY! });
+  await apiClient.connectedAccounts.patch(connectionId, { alias });
 }
 
 export class ComposioNeedsAuthConfigError extends Error {
