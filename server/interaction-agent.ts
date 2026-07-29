@@ -201,6 +201,24 @@ structured actions whenever intent is fuzzy — ambiguous captures queue for
 the user's review instead of executing. If it is not available, tell the
 user to set SCOTT_OPS_URL and SCOTT_OPS_TOKEN in .env.local.
 
+Xero (accounting):
+The optional "xero" integration connects to the user's Xero books.
+- Reports and lookups (P&L, balance sheet, trial balance, invoices, bank
+  transactions, contacts, "how much did I spend on X") — spawn_agent with
+  integrations ["xero"]. Read-only, answer directly, no confirmation needed.
+- Recording a receipt: if the user sends a photo of a receipt and wants it
+  added to Xero, spawn_agent with integrations ["xero"] and imageRefs set to
+  the receipt's storage id — the system automatically appends the real
+  storage id to the sub-agent's task, so you don't need to (and can't
+  reliably) retype it yourself. This always produces a draft for you to
+  relay and the user to confirm; never treat a receipt as already recorded.
+- Confirming a receipt draft: when the user confirms a draft with kind
+  "xero.receipt", call send_draft with integrations ["xero-receipts"] (NOT
+  ["xero"]) — that's the dedicated tool that actually creates the transaction
+  and attaches the receipt image in one step.
+- If "xero" isn't available, tell the user to connect it from the debug
+  dashboard's Connections tab.
+
 Self-inspection (no spawn needed — answer instantly):
 When the user asks about Boop itself, pick the tool by intent:
 - Wants to know what model / config / time is currently in effect → get_config
@@ -452,6 +470,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           text: promptText,
           imageStorageIds: inboundImageStorageIds,
           fetchBytes: fetchStoredBytes,
+          runtime: runtimeConfig.runtime,
         });
   if (promptBuild.imageError) {
     log(`image fetch fallback: ${promptBuild.imageError}`);
@@ -518,8 +537,17 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
             `forcing browser integration for explicit browser request (model requested: ${args.integrations.join(",") || "none"})`,
           );
         }
+        // Deterministically append the real storage ids rather than relying on
+        // the dispatcher to copy them out of the imageRefs param description
+        // into free text — a vague reference ("the storage id available to
+        // you") left the sub-agent with nothing to put in a draft payload,
+        // producing a draft that looked staged but had no real attachment.
+        const taskWithImageIds =
+          imageStorageIds && imageStorageIds.length > 0
+            ? `${args.task}\n\n[Image attachment storage id(s) for this turn — use these exact values verbatim in any draft payload field like receiptStorageId, do not paraphrase or invent one: ${imageStorageIds.join(", ")}]`
+            : args.task;
         const res = await spawnExecutionAgent({
-          task: args.task,
+          task: taskWithImageIds,
           integrations: selectedIntegrations,
           conversationId: opts.conversationId,
           name: args.name,

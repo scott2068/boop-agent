@@ -99,7 +99,18 @@ payload JSON: ${draft.payload}`;
           name: `send:${draft.kind}`,
           runtimeConfig,
         });
-        return runtimeText(`Draft ${args.draftId} executed.\n\n${res.result}`);
+        if (res.status !== "completed") {
+          return runtimeText(
+            `Draft ${args.draftId} execution failed (${res.status}).\n\n${res.result}`,
+            false,
+          );
+        }
+        // A completed agent turn can still contain a failed integration tool
+        // result (for example, Xero created a transaction but could not attach
+        // its receipt). Do not claim the external action definitely succeeded;
+        // preserve the execution agent's result so the user sees the precise
+        // outcome and any recovery instructions.
+        return runtimeText(`Draft ${args.draftId} execution attempt completed.\n\n${res.result}`);
       },
     ),
 

@@ -9,8 +9,14 @@ export type RuntimeImageBlock = {
   type: "image";
   source: { type: "base64"; media_type: string; data: string };
 };
+export type RuntimeDocumentBlock = {
+  type: "document";
+  source: { type: "base64"; media_type: "application/pdf"; data: string };
+};
 export type RuntimeTextBlock = { type: "text"; text: string };
-export type RuntimePrompt = string | Array<RuntimeImageBlock | RuntimeTextBlock>;
+export type RuntimePrompt =
+  | string
+  | Array<RuntimeImageBlock | RuntimeDocumentBlock | RuntimeTextBlock>;
 
 export interface RuntimeTool {
   namespace: string;

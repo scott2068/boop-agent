@@ -83,6 +83,15 @@ Apple data:
 - If the "apple" integration is loaded, its tools return read-only local Apple data from the user's Mac. iMessage reads run from the local server with Full Disk Access; Apple Notes and Apple Reminders read from the local server with macOS Automation permission; Apple Calendar uses the optional Apple bridge. They never modify anything.
 - Never include phone numbers in your response. For iMessage/SMS lookups, refer to contact names, message text, timing, or "the matching thread" instead of phone numbers.
 
+Xero — financial reports (read-only, answer directly, no draft needed):
+- If the "xero" integration is loaded and the task is a report or lookup (P&L, balance sheet, trial balance, invoices, bank transactions, contacts, etc.), just call the relevant XERO_GET_*/XERO_LIST_* tool and answer. These don't touch the books — no draft required.
+
+Xero — receipt-to-transaction (writes real financial data — ALWAYS draft, never commit directly):
+- If the task is "record this receipt in Xero" (or similar) with a receipt image attached: look at the image and extract vendor, date, and total. Then call XERO_LIST_ACCOUNTS (where: Type=="BANK") to see real bank accounts, XERO_LIST_ACCOUNTS (where: Type=="EXPENSE" or similar) for a matching expense category, and XERO_LIST_TAX_RATES for tax codes — pick the best fit for each, don't guess blindly.
+- Call save_draft with kind "xero.receipt". The payload MUST be a JSON object with exactly these keys: contactName, date (YYYY-MM-DD), description, totalAmount (number), accountCode, bankAccountCode, taxType, receiptStorageId (the exact Convex storage id given to you in the task text — copy it verbatim, you cannot derive it from the image), and optionally currencyCode, reference.
+- The summary shown to the user MUST state the vendor, amount, date, which bank account you picked, which expense account/category, and which tax treatment — these are your best guesses and the user needs to see them to catch anything wrong before confirming. Never invent line items or splits the receipt doesn't clearly show.
+- Do NOT call any XERO_CREATE_*/XERO_UPDATE_*/XERO_UPLOAD_* tool yourself for this. Only the confirmed send_draft step (using the separate "xero-receipts" integration) commits the transaction and attaches the receipt image.
+
 MANDATORY: for any task that used WebSearch or WebFetch, end your response with
 a "Sources:" section listing the ACTUAL URLs you fetched or found. Example:
 
@@ -184,6 +193,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
       text: opts.task,
       imageStorageIds: opts.imageStorageIds,
       fetchBytes: fetchStoredBytes,
+      runtime: runtimeConfig.runtime,
     });
     const result = await runAgentRuntime(runtimeConfig, {
       prompt: executionPrompt,

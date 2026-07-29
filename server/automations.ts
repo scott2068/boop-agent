@@ -53,6 +53,22 @@ async function runAutomation(a: {
   });
   broadcast("automation_started", { automationId: a.automationId, runId, name: a.name });
 
+  // Claim this run's next occurrence immediately, before the slow work below.
+  // tickAutomations polls every 30s off `nextRunAt`; a spawned execution agent
+  // (LLM call + tool use) routinely takes 40-100s, so if we only advanced
+  // nextRunAt at the very end, later polls would still see this automation as
+  // "due" and fire duplicate runs — each an independent agent call that could
+  // notify with slightly different (or stale) results. Advancing it now closes
+  // that window; a failed run still won't retry sooner than its next schedule,
+  // matching prior behavior.
+  const tz = a.timezone ?? (await getUserTimezone());
+  const next = nextRunFor(a.schedule, tz);
+  await convex.mutation(api.automations.markRan, {
+    automationId: a.automationId,
+    lastRunAt: Date.now(),
+    nextRunAt: next ?? undefined,
+  });
+
   try {
     const res = await spawnExecutionAgent({
       task: `AUTOMATION "${a.name}": ${a.task}`,
@@ -89,16 +105,6 @@ async function runAutomation(a: {
     });
     broadcast("automation_failed", { automationId: a.automationId, runId, error: String(err) });
   }
-
-  // Pre-TZ automations have no stored timezone — fall back to whatever the
-  // user's current setting is so they don't keep firing in the host zone.
-  const tz = a.timezone ?? (await getUserTimezone());
-  const next = nextRunFor(a.schedule, tz);
-  await convex.mutation(api.automations.markRan, {
-    automationId: a.automationId,
-    lastRunAt: Date.now(),
-    nextRunAt: next ?? undefined,
-  });
 }
 
 export async function tickAutomations(): Promise<void> {

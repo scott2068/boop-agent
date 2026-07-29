@@ -64,7 +64,7 @@ describe("buildPromptWithImages", () => {
     expect((res[1] as { source: { media_type: string } }).source.media_type).toBe("image/png");
     expect(res[2]).toEqual({ type: "text", text: "x" });
   });
-  it("uses empty text block when text is missing but images are present", async () => {
+  it("uses an attachment placeholder when text is missing", async () => {
     const res = (await buildPromptWithImages({
       text: "",
       imageStorageIds: ["id1"],
@@ -73,7 +73,41 @@ describe("buildPromptWithImages", () => {
       }),
     })) as Array<Record<string, unknown>>;
     expect(res).toHaveLength(2);
-    expect(res[1]).toEqual({ type: "text", text: "(image)" });
+    expect(res[1]).toEqual({ type: "text", text: "(attachment)" });
+  });
+  it("builds Claude document blocks for PDFs", async () => {
+    const bytes = Buffer.from("%PDF");
+    const res = (await buildPromptWithImages({
+      text: "read this",
+      imageStorageIds: ["pdf1"],
+      fetchBytes: fakeFetch({
+        pdf1: { bytes, mediaType: "application/pdf" },
+      }),
+      runtime: "claude",
+    })) as Array<Record<string, unknown>>;
+    expect(res[0]).toEqual({
+      type: "document",
+      source: {
+        type: "base64",
+        media_type: "application/pdf",
+        data: bytes.toString("base64"),
+      },
+    });
+    expect(res[1]).toEqual({ type: "text", text: "read this" });
+  });
+  it("falls back with an actionable runtime message for PDFs on Codex", async () => {
+    const res = await buildPromptWithImagesOrTextFallback({
+      text: "read this",
+      imageStorageIds: ["pdf1"],
+      fetchBytes: fakeFetch({
+        pdf1: { bytes: Buffer.from("%PDF"), mediaType: "application/pdf" },
+      }),
+      runtime: "codex",
+    });
+    expect(res.imageStorageIds).toEqual([]);
+    expect(res.imageError).toMatch(/PDF attachments aren't supported/);
+    expect(res.prompt).toContain("switch runtimes");
+    expect(res.prompt).toContain("use claude");
   });
   it("rethrows when fetchBytes rejects", async () => {
     await expect(

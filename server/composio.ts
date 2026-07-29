@@ -44,6 +44,7 @@ export const CURATED_TOOLKITS: CuratedToolkit[] = [
   { slug: "supabase", displayName: "Supabase", authMode: "managed" },
   { slug: "granola_mcp", displayName: "Granola", authMode: "managed" },
   { slug: "salesforce", displayName: "Salesforce", authMode: "managed" },
+  { slug: "xero", displayName: "Xero", authMode: "managed" },
   { slug: "twitter", displayName: "Twitter / X", authMode: "byo" },
   { slug: "linkedin", displayName: "LinkedIn", authMode: "managed" },
   { slug: "instagram", displayName: "Instagram", authMode: "managed" },
@@ -61,6 +62,11 @@ export function getComposio(): Composio<ClaudeAgentSDKProvider> | null {
   singleton = new Composio<ClaudeAgentSDKProvider>({
     apiKey,
     provider: new ClaudeAgentSDKProvider(),
+    // Needed so XERO_UPLOAD_ATTACHMENT (and any other file_uploadable Composio
+    // action) can auto-upload a local file path passed as an argument. Default
+    // allowlist is `~/.composio/temp` only — server/integrations/xero-receipts.ts
+    // stages receipt images there, nothing else reads/writes that directory.
+    dangerouslyAllowAutoUploadDownloadFiles: true,
   });
   return singleton;
 }
@@ -538,12 +544,18 @@ export async function authorizeToolkit(
     }
   }
 
-  // 2. Initiate the connection. allowMultiple if there's already an active connection
+  // 2. Link the connection. allowMultiple if there's already an active connection
   //    so we add another account instead of replacing.
+  //    Using connectedAccounts.link() rather than the older .initiate() —
+  //    Composio retired the legacy /connected_accounts endpoint for
+  //    Composio-managed OAuth on redirectable schemes (cutover 2026-07-03).
+  //    .link() is the documented drop-in replacement: same params, same
+  //    allowMultiple semantics, same ConnectionRequest return shape, and it
+  //    works for both Composio-managed and custom auth configs.
   const existing = (await listConnectedToolkits()).filter(
     (c) => c.slug === slug && c.status === "ACTIVE",
   );
-  const conn = await composio.connectedAccounts.initiate(boopUserId(), authConfigId, {
+  const conn = await composio.connectedAccounts.link(boopUserId(), authConfigId, {
     ...(existing.length > 0 ? { allowMultiple: true } : {}),
     ...(opts?.callbackUrl ? { callbackUrl: opts.callbackUrl } : {}),
     ...(opts?.alias ? { alias: opts.alias } : {}),

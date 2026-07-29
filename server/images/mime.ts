@@ -7,12 +7,24 @@ export const ALLOWED_IMAGE_MIME_LIST = [
   "image/gif",
 ] as const;
 
+// PDFs (e.g. emailed/scanned receipts) go through the same ingest/storage
+// pipeline as images but need a different Claude content-block type — see
+// content-blocks.ts's document-vs-image branch.
+export const ALLOWED_DOCUMENT_MIME_LIST = ["application/pdf"] as const;
+
 export type ImageMediaType = (typeof ALLOWED_IMAGE_MIME_LIST)[number];
+export type DocumentMediaType = (typeof ALLOWED_DOCUMENT_MIME_LIST)[number];
+export type AttachmentMediaType = ImageMediaType | DocumentMediaType;
 
 export const ALLOWED_IMAGE_MIME: ReadonlySet<string> = new Set(ALLOWED_IMAGE_MIME_LIST);
+export const ALLOWED_DOCUMENT_MIME: ReadonlySet<string> = new Set(ALLOWED_DOCUMENT_MIME_LIST);
+const ALLOWED_ATTACHMENT_MIME: ReadonlySet<string> = new Set([
+  ...ALLOWED_IMAGE_MIME_LIST,
+  ...ALLOWED_DOCUMENT_MIME_LIST,
+]);
 
 export type ImageHeaderCheck =
-  | { ok: true; mediaType: ImageMediaType }
+  | { ok: true; mediaType: AttachmentMediaType }
   | { ok: false; reason: string };
 
 export interface ImageHeader {
@@ -30,11 +42,11 @@ function normalizeContentType(raw: string | undefined): string | undefined {
 export function validateImageHeader(header: ImageHeader): ImageHeaderCheck {
   const mime = normalizeContentType(header.contentType);
   if (!mime) return { ok: false, reason: "missing content-type" };
-  if (!ALLOWED_IMAGE_MIME.has(mime)) {
+  if (!ALLOWED_ATTACHMENT_MIME.has(mime)) {
     return { ok: false, reason: `disallowed mime type: ${mime}` };
   }
   if (typeof header.contentLength === "number" && header.contentLength > MAX_IMAGE_BYTES) {
-    return { ok: false, reason: `image too large: ${header.contentLength} bytes` };
+    return { ok: false, reason: `attachment too large: ${header.contentLength} bytes` };
   }
-  return { ok: true, mediaType: mime as ImageMediaType };
+  return { ok: true, mediaType: mime as AttachmentMediaType };
 }

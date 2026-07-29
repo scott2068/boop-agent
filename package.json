@@ -44,7 +44,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "@vitejs/plugin-react": "^4.3.0",
-    "convex": "^1.36.1",
+    "convex": "^1.42.3",
     "cors": "^2.8.5",
     "croner": "^9.0.0",
     "dotenv": "^16.4.0",

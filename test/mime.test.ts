@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { validateImageHeader, ALLOWED_IMAGE_MIME } from "../server/images/mime.js";
+import {
+  validateImageHeader,
+  ALLOWED_DOCUMENT_MIME,
+  ALLOWED_IMAGE_MIME,
+} from "../server/images/mime.js";
 
 const TEN_MB = 10 * 1024 * 1024;
 
@@ -24,10 +28,10 @@ describe("validateImageHeader", () => {
       validateImageHeader({ contentType: "image/gif", contentLength: 1 }),
     ).toEqual({ ok: true, mediaType: "image/gif" });
   });
-  it("rejects application/pdf", () => {
+  it("accepts application/pdf as a document attachment", () => {
     expect(
       validateImageHeader({ contentType: "application/pdf", contentLength: 1 }),
-    ).toMatchObject({ ok: false, reason: expect.stringMatching(/mime|type/i) });
+    ).toEqual({ ok: true, mediaType: "application/pdf" });
   });
   it("rejects application/octet-stream", () => {
     expect(
@@ -57,5 +61,6 @@ describe("validateImageHeader", () => {
   it("exposes the allowed mime set", () => {
     expect(ALLOWED_IMAGE_MIME.has("image/png")).toBe(true);
     expect(ALLOWED_IMAGE_MIME.has("image/heic")).toBe(false);
+    expect(ALLOWED_DOCUMENT_MIME.has("application/pdf")).toBe(true);
   });
 });

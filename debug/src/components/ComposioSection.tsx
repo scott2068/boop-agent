@@ -530,6 +530,14 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
   const [toolsBySlug, setToolsBySlug] = useState<
     Record<string, ToolSummary[] | "loading" | "error">
   >({});
+  const [connectedOnly, setConnectedOnly] = useState(false);
+  const [search, setSearch] = useState("");
+  // The default `/toolkits` fetch only returns curated + already-connected
+  // toolkits — cheap, but it can't answer "is X available at all?". Searching
+  // needs the full ~1000-toolkit catalog, so fetch it lazily (once) the first
+  // time the user actually searches, rather than on every dashboard load.
+  const [fullCatalog, setFullCatalog] = useState<ToolkitsResponse | null>(null);
+  const [fullCatalogLoading, setFullCatalogLoading] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dismissToast = useCallback(() => {
@@ -611,6 +619,19 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
   useEffect(() => {
     fetchAppleStatus();
   }, [fetchAppleStatus]);
+
+  const searchActive = search.trim().length > 0;
+  useEffect(() => {
+    // Demo mode's normal fetch already requests catalog=all (see fetchToolkits
+    // above), so `data` is already comprehensive there — no second fetch needed.
+    if (!searchActive || demoModeEnabled || fullCatalog || fullCatalogLoading) return;
+    setFullCatalogLoading(true);
+    fetch("/api/composio/toolkits?catalog=all")
+      .then((r) => r.json())
+      .then((json: ToolkitsResponse) => setFullCatalog(json))
+      .catch(() => setFullCatalog({ enabled: false, toolkits: [] }))
+      .finally(() => setFullCatalogLoading(false));
+  }, [searchActive, demoModeEnabled, fullCatalog, fullCatalogLoading]);
 
   const toggleAppleSource = useCallback(
     async (source: AppleLocalSource, enabled: boolean) => {
@@ -903,6 +924,36 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
         <IntroCard isDark={isDark} onDismiss={dismissIntro} />
       )}
 
+      {visibleData?.enabled !== false && (
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={
+              fullCatalogLoading ? "Searching Composio's full catalog…" : "Search all Composio toolkits…"
+            }
+            aria-label="Search Composio toolkits"
+            className={`min-w-[220px] flex-1 rounded-xl border px-3 py-2 text-sm outline-none ${
+              isDark
+                ? "border-white/10 bg-black/20 text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-400"
+                : "border-zinc-200 bg-white text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400"
+            }`}
+          />
+          <label
+            className={`flex shrink-0 items-center gap-2 text-sm ${isDark ? "text-zinc-300" : "text-zinc-700"}`}
+          >
+            <input
+              type="checkbox"
+              checked={connectedOnly}
+              onChange={(e) => setConnectedOnly(e.target.checked)}
+              className="h-4 w-4 rounded"
+            />
+            Connected only
+          </label>
+        </div>
+      )}
+
       {showLocalAppleConnectors && (
         <SubsectionGrid
           label="Local Mac"
@@ -1008,7 +1059,17 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
         </div>
       ) : (
         (() => {
-          const toolkits = visibleData?.toolkits ?? [];
+          const source = searchActive && !demoModeEnabled ? (fullCatalog ?? visibleData) : visibleData;
+          const query = search.trim().toLowerCase();
+          const toolkits = (source?.toolkits ?? []).filter((t) => {
+            if (connectedOnly && t.connections.length === 0) return false;
+            if (!query) return true;
+            return (
+              t.slug.toLowerCase().includes(query) ||
+              t.displayName.toLowerCase().includes(query) ||
+              (t.description?.toLowerCase().includes(query) ?? false)
+            );
+          });
           const needsSetup = toolkits.filter(
             (t) => !hasActive(t) && t.authMode === "byo" && !t.hasAuthConfig,
           );
@@ -1064,6 +1125,15 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
                     />
                   ))}
                 </SubsectionGrid>
+              )}
+              {ready.length === 0 && needsSetup.length === 0 && (
+                <div className={`rounded-2xl border px-4 py-6 text-sm shadow-sm ${cardBg} ${muted}`}>
+                  {searchActive && fullCatalogLoading
+                    ? "Searching Composio's full catalog…"
+                    : connectedOnly
+                      ? "No connected toolkits match your search."
+                      : "No toolkits match your search."}
+                </div>
               )}
             </div>
           );

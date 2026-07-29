@@ -13,15 +13,24 @@ export interface BuildPromptArgs {
   text: string;
   imageStorageIds: string[] | undefined;
   fetchBytes: FetchBytes;
+  // Codex's app-server protocol has no PDF/document input type (see
+  // runtimes/codex-app-server.ts). Passing the runtime here lets PDF
+  // attachments fail early with an actionable message instead of a deep,
+  // generic error from inside the Codex-specific mapper.
+  runtime?: "claude" | "codex";
 }
 
 type ImageBlock = {
   type: "image";
   source: { type: "base64"; media_type: string; data: string };
 };
+type DocumentBlock = {
+  type: "document";
+  source: { type: "base64"; media_type: "application/pdf"; data: string };
+};
 type TextBlock = { type: "text"; text: string };
 
-export type PromptInput = string | Array<ImageBlock | TextBlock>;
+export type PromptInput = string | Array<ImageBlock | DocumentBlock | TextBlock>;
 
 export interface PromptBuildResult {
   prompt: PromptInput;
@@ -35,6 +44,17 @@ function errorMessage(err: unknown): string {
 
 function textOnlyImageFallback(text: string): string {
   return `[user sent images, but Boop couldn't retrieve the stored image bytes. Continue using the text-only message; if image details are necessary, say the image could not be inspected.]\n${text}`;
+}
+
+export class PdfUnsupportedOnCodexError extends Error {
+  constructor() {
+    super("PDF attachments aren't supported on the Codex runtime — switch to Claude for this request (e.g. \"use claude\") and resend.");
+    this.name = "PdfUnsupportedOnCodexError";
+  }
+}
+
+function pdfOnCodexFallback(text: string): string {
+  return `[user sent a PDF attachment, but the current runtime (Codex) can't read PDFs — only Claude can. Tell the user to switch runtimes (e.g. "use claude") and resend the PDF. Do not say you couldn't retrieve the file; the file is fine, it's a runtime limitation.]\n${text}`;
 }
 
 export async function readCappedImageBytes(res: Response): Promise<Buffer> {
@@ -70,15 +90,22 @@ export async function buildPromptWithImages(
   if (ids.length === 0) return args.text;
 
   const fetched = await Promise.all(ids.map((id) => args.fetchBytes(id)));
-  const blocks: Array<ImageBlock | TextBlock> = fetched.map(({ bytes, mediaType }) => ({
-    type: "image",
-    source: {
-      type: "base64",
-      media_type: mediaType,
-      data: bytes.toString("base64"),
-    },
-  }));
-  blocks.push({ type: "text", text: args.text.length > 0 ? args.text : "(image)" });
+  if (args.runtime === "codex" && fetched.some((f) => f.mediaType === "application/pdf")) {
+    throw new PdfUnsupportedOnCodexError();
+  }
+  const blocks: Array<ImageBlock | DocumentBlock | TextBlock> = fetched.map(
+    ({ bytes, mediaType }) =>
+      mediaType === "application/pdf"
+        ? {
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: bytes.toString("base64") },
+          }
+        : {
+            type: "image",
+            source: { type: "base64", media_type: mediaType, data: bytes.toString("base64") },
+          },
+  );
+  blocks.push({ type: "text", text: args.text.length > 0 ? args.text : "(attachment)" });
   return blocks;
 }
 
@@ -94,8 +121,9 @@ export async function buildPromptWithImagesOrTextFallback(
       imageStorageIds: ids,
     };
   } catch (err) {
+    const isPdfOnCodex = err instanceof PdfUnsupportedOnCodexError;
     return {
-      prompt: textOnlyImageFallback(args.text),
+      prompt: isPdfOnCodex ? pdfOnCodexFallback(args.text) : textOnlyImageFallback(args.text),
       imageStorageIds: [],
       imageError: errorMessage(err),
     };

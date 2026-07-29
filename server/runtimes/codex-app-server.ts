@@ -211,6 +211,15 @@ function codexInputForPrompt(prompt: RuntimeRunRequest["prompt"]): UserInput[] {
     if (block.type === "text") {
       return { type: "text", text: block.text, text_elements: [] };
     }
+    if (block.type === "document") {
+      // Codex's app-server protocol has no known document/PDF input type —
+      // sending it as an "image" data URL would silently mis-deliver a PDF as
+      // a broken/garbage image. Fail loudly instead; switch to the Claude
+      // runtime for PDF attachments until this is confirmed supported.
+      throw new Error(
+        "Codex runtime does not support PDF attachments yet — switch to the Claude runtime for this request.",
+      );
+    }
     return {
       type: "image",
       url: `data:${block.source.media_type};base64,${block.source.data}`,

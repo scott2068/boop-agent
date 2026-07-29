@@ -3,7 +3,7 @@ import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { handleUserMessage } from "./interaction-agent.js";
 import { broadcast } from "./broadcast.js";
-import { validateImageHeader, MAX_IMAGE_BYTES, type ImageMediaType } from "./images/mime.js";
+import { validateImageHeader, MAX_IMAGE_BYTES, type AttachmentMediaType } from "./images/mime.js";
 import { redactContactHandle, redactPhoneNumbers } from "./privacy.js";
 import { maybeHandleScriptedDemoReply } from "./scripted-demo-replies.js";
 import { verifySendblueWebhookSecret } from "./sendblue-webhook-auth.js";
@@ -141,7 +141,7 @@ export function startTypingLoop(toNumber: string): () => void {
   return () => clearInterval(timer);
 }
 
-type IngestedImage = { storageId: string; mediaType: ImageMediaType };
+type IngestedImage = { storageId: string; mediaType: AttachmentMediaType };
 
 export async function ingestSendblueImage(
   url: string,

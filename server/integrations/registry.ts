@@ -49,6 +49,8 @@ export async function loadIntegrations(): Promise<void> {
   registerAppleIntegration();
   const { registerScottOpsIntegration } = await import("./scott-ops.js");
   registerScottOpsIntegration();
+  const { registerXeroReceiptsIntegration } = await import("./xero-receipts.js");
+  registerXeroReceiptsIntegration();
   const loaded = [...registry.keys()];
   const enabled = (await listEnabledIntegrations()).map((i) => i.name);
   console.log(

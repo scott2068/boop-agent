@@ -666,7 +666,62 @@ function runBootstrap(command, args) {
   });
 }
 
+function execCapture(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    child.stdout.on("data", (chunk) => {
+      out += chunk.toString();
+    });
+    child.on("error", () => resolve(""));
+    child.on("close", () => resolve(out));
+  });
+}
+
+// The local Convex backend (a separate Rust binary the `convex` CLI spawns)
+// can outlive its parent if the previous session didn't shut down cleanly —
+// e.g. a `boopProcess`/`bootstrapProcess` SIGTERM only reaches the direct
+// child, not that grandchild. When that happens it keeps port 3210, and the
+// next `convex dev --once` bootstrap fails immediately with "A local backend
+// is still running on port 3210." Check for exactly that orphan before every
+// bootstrap and clear it automatically. Only macOS is supported here (lsof/ps);
+// other platforms just skip the check and surface the normal bootstrap error.
+async function clearStaleConvexBackend() {
+  if (!isMac) return;
+  const listeners = (await execCapture("lsof", ["-nP", "-iTCP:3210", "-sTCP:LISTEN", "-t"]))
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const pidStr of listeners) {
+    const pid = Number(pidStr);
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    const cmdline = await execCapture("ps", ["-p", String(pid), "-o", "command="]);
+    // Only ever touch a backend that's serving THIS runtime folder's local
+    // data — never an unrelated process that happens to hold the port.
+    if (!cmdline.includes("convex-local-backend") || !cmdline.includes(runtimeRoot)) continue;
+    setStatus({ lastMessage: "Clearing a leftover Convex backend from a previous session…" });
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* already exited */
+    }
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const stillListening = await execCapture("lsof", ["-nP", "-iTCP:3210", "-sTCP:LISTEN", "-t"]);
+      if (!stillListening.includes(pidStr)) break;
+      if (attempt === 9) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already exited */
+        }
+      }
+    }
+  }
+}
+
 async function syncConvexRuntime() {
+  await clearStaleConvexBackend();
   const generatedApi = path.join(runtimeRoot, "convex", "_generated", "api.js");
   const convex = localCommand("convex");
   setStatus({
