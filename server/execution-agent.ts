@@ -183,7 +183,12 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
     ...runtimeToolNamespaces.flatMap((n) => [`mcp__${n}__*`]),
   ];
 
-  let buffer = "";
+  // Runtime text callbacks are a progress stream, not necessarily one
+  // assistant turn. Claude can emit a provisional answer before a tool call
+  // and the final answer after it; returning the concatenated stream would
+  // deliver both to the user. Keep it only as a fallback for runtimes that
+  // don't provide a final result.
+  let streamedText = "";
   let usage: UsageTotals = { ...EMPTY_USAGE };
   let status: "completed" | "failed" | "cancelled" = "completed";
   let errorMsg: string | undefined;
@@ -204,7 +209,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
       abortController: abort,
       mode: "execution",
       onText: async (text) => {
-        buffer += text;
+        streamedText += text;
         await convex.mutation(api.agents.addLog, {
           agentId,
           logType: "text",
@@ -234,7 +239,8 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
         });
       },
     });
-    if (!buffer) buffer = result.text;
+    const finalText = result.text.trim() || streamedText.trim();
+    streamedText = finalText;
     usage = result.usage;
   } catch (err) {
     status = abort.signal.aborted ? "cancelled" : "failed";
@@ -256,7 +262,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
   await convex.mutation(api.agents.update, {
     agentId,
     status,
-    result: buffer,
+    result: streamedText,
     error: errorMsg,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
@@ -281,9 +287,9 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
       durationMs: Date.now() - agentStart,
     });
   }
-  broadcast("agent_done", { agentId, status, result: buffer.slice(0, 200) });
+  broadcast("agent_done", { agentId, status, result: streamedText.slice(0, 200) });
 
-  return { agentId, result: buffer || errorMsg || "(no output)", status };
+  return { agentId, result: streamedText || errorMsg || "(no output)", status };
 }
 
 export function cancelAgent(agentId: string): boolean {
