@@ -111,10 +111,6 @@ function spawnCodexAppServer(): {
     "image_generation",
     "--disable",
     "multi_agent",
-    "--disable",
-    "shell_tool",
-    "--disable",
-    "unified_exec",
   ];
   if (process.platform === "win32") {
     return {
@@ -145,7 +141,16 @@ function codexSandboxForMode(mode: RuntimeRunRequest["mode"]): SandboxPolicy {
   if (mode === "dispatcher" || mode === "background") {
     return { type: "readOnly", networkAccess: false };
   }
-  return { type: "readOnly", networkAccess: true };
+  // Execution agents need parity with Claude's bypassPermissions mode for
+  // user-authored local automations: reading logs outside the temporary Codex
+  // workspace and writing requested artifacts to explicit absolute paths.
+  return { type: "dangerFullAccess" };
+}
+
+function codexSandboxModeForMode(
+  mode: RuntimeRunRequest["mode"],
+): ThreadStartParams["sandbox"] {
+  return mode === "execution" ? "danger-full-access" : "read-only";
 }
 
 function codexReasoningEffort(
@@ -315,7 +320,7 @@ class CodexAppServerClient {
         model: request.model,
         cwd: request.cwd ?? join(spawned.codexHome, "workspace"),
         approvalPolicy: "never",
-        sandbox: "read-only",
+        sandbox: codexSandboxModeForMode(request.mode),
         config: codexConfigForMode(request.mode),
         developerInstructions: developerInstructionsForRequest(request),
         ephemeral: true,
