@@ -1,4 +1,5 @@
 import express from "express";
+import { deliverSendblueMessage } from "./sendblue-delivery.js";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { handleUserMessage } from "./interaction-agent.js";
@@ -74,49 +75,41 @@ function normalizeE164(n: string | undefined): string | undefined {
   return trimmed;
 }
 
-export async function sendImessage(toNumber: string, text: string): Promise<void> {
+export async function sendImessage(
+  toNumber: string,
+  text: string,
+  options: { poll?: boolean } = {},
+): Promise<void> {
   const h = headers();
   if (!h) {
-    console.warn("[sendblue] missing credentials — not sending");
-    return;
+    throw new Error("Sendblue delivery failed: API credentials are missing.");
   }
   const from = normalizeE164(process.env.SENDBLUE_FROM_NUMBER);
   if (!from) {
-    console.error(
-      `[sendblue] SENDBLUE_FROM_NUMBER is not set. Run \`npm run sendblue:sync\` (pulls it from \`sendblue lines\`) or paste your provisioned number into .env.local, then restart \`npm run dev\`.`,
-    );
-    return;
+    throw new Error("Sendblue delivery failed: SENDBLUE_FROM_NUMBER is not set. Sync the authorised line and restart Boop.");
   }
   // Intentional privacy guard: Boop should not deliver phone numbers back over
   // iMessage, even if an agent includes one in its final reply.
   const plain = redactPhoneNumbers(stripMarkdown(text));
   for (const part of chunk(plain)) {
-    const res = await fetch(`${API_BASE}/send-message`, {
-      method: "POST",
-      headers: h,
-      body: JSON.stringify({ number: toNumber, content: part, from_number: from }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(
-        `[sendblue] send failed ${res.status}: ${redactPhoneNumbers(body).slice(0, 500)}`,
-      );
-      if (body.includes("missing required parameter") && body.includes("from_number")) {
-        console.error(
-          `[sendblue] → Set SENDBLUE_FROM_NUMBER in .env.local to your Sendblue-provisioned number and restart the server.`,
-        );
-      } else if (body.includes("Cannot send messages to self")) {
-        console.error(
-          `[sendblue] → SENDBLUE_FROM_NUMBER is your personal cell. It must be the Sendblue-provisioned number (the one people text TO).`,
-        );
-      } else if (body.includes("This phone number is not defined")) {
-        console.error(
-          `[sendblue] → Sendblue doesn't recognize from_number=${redactContactHandle(from)}. Run \`npm run sendblue:sync\` to pull the correct one from \`sendblue lines\`, then restart the server.`,
-        );
-      }
-    } else {
-      console.log(`[sendblue] → sent ${part.length} chars to ${redactContactHandle(toNumber)}`);
-    }
+    await deliverSendblueMessage(h, { number: toNumber, content: part, from_number: from }, options);
+    console.log(`[sendblue] → delivered ${part.length} chars to ${redactContactHandle(toNumber)}`);
+  }
+}
+
+// For callers that must keep going if delivery fails (saving the reply to
+// history, finishing the turn). The failure is logged, not swallowed.
+export async function sendImessageSafe(
+  toNumber: string,
+  text: string,
+  options: { poll?: boolean } = {},
+): Promise<boolean> {
+  try {
+    await sendImessage(toNumber, text, options);
+    return true;
+  } catch (err) {
+    console.error(`[sendblue] delivery to ${redactContactHandle(toNumber)} failed:`, err);
+    return false;
   }
 }
 
@@ -297,7 +290,7 @@ export function createSendblueRouter(): express.Router {
         console.log(
           `[turn ${turnTag}] → reply (${elapsed}s, ${reply.length} chars): ${JSON.stringify(replyPreview)}`,
         );
-        await sendImessage(from_number, reply);
+        await sendImessageSafe(from_number, reply);
         await convex.mutation(api.messages.send, {
           conversationId,
           role: "assistant",

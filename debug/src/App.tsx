@@ -19,6 +19,7 @@ import { DashboardPanel } from "./components/DashboardPanel.js";
 import { AgentsPanel } from "./components/AgentsPanel.js";
 import { AutomationsPanel } from "./components/AutomationsPanel.js";
 import { MemoryPanel } from "./components/MemoryPanel.js";
+import { LogsPanel } from "./components/LogsPanel.js";
 import { EventsPanel } from "./components/EventsPanel.js";
 import { ConnectionsPanel } from "./components/ConnectionsPanel.js";
 import { ConsolidationPanel } from "./components/ConsolidationPanel.js";
@@ -35,6 +36,7 @@ type View =
   | "events"
   | "consolidation"
   | "connections"
+  | "logs"
   | "settings";
 
 type Theme = "dark" | "light";
@@ -74,6 +76,7 @@ interface DesktopStatus {
 }
 
 type DesktopAction =
+  | "openLogs"
   | "start"
   | "stop"
   | "restart"
@@ -92,6 +95,7 @@ const NAV_ICONS: Record<View, any> = {
   events: Activity01Icon,
   consolidation: ArrowShrink02Icon,
   connections: Link04Icon,
+  logs: Activity01Icon,
   settings: Settings01Icon,
 };
 
@@ -103,6 +107,7 @@ const NAV: { id: View; label: string }[] = [
   { id: "events", label: "Events" },
   { id: "consolidation", label: "Consolidation" },
   { id: "connections", label: "Connections" },
+  { id: "logs", label: "Logs" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -193,6 +198,7 @@ export function App() {
     function onDesktopStatus(event: MessageEvent) {
       if (event.source !== window.parent) return;
       const data = event.data;
+      if (data?.type === "boop-open-logs") { setView("logs"); return; }
       if (!data || data.type !== "boop-desktop-status") return;
       setDesktopStatus(data.status as DesktopStatus);
     }
@@ -280,6 +286,7 @@ export function App() {
               )}
             </button>
           ))}
+
         </div>
 
         <div className="mt-auto space-y-3">
@@ -392,6 +399,7 @@ export function App() {
             {view === "events" && <EventsPanel isDark={isDark} />}
             {view === "consolidation" && <ConsolidationPanel isDark={isDark} />}
             {view === "connections" && <ConnectionsPanel isDark={isDark} />}
+            {view === "logs" && <LogsPanel isDark={isDark} inDesktopShell={inDesktopShell} />}
             {view === "settings" && (
               <SettingsPanel
                 isDark={isDark}

@@ -14,7 +14,7 @@ import {
   setRuntimeProvider,
 } from "./runtime-config.js";
 import { broadcast } from "./broadcast.js";
-import { sendImessage } from "./sendblue.js";
+import { sendImessageSafe } from "./sendblue.js";
 import { defineRuntimeTool } from "./runtimes/tool.js";
 import { runAgentRuntime } from "./runtimes/index.js";
 import { runtimeText } from "./runtimes/types.js";
@@ -121,6 +121,15 @@ Phone-number privacy:
   echo it back.
 
 Automations:
+When asked to run, retry, rerun, or try an existing scheduled task again,
+FIRST use list_automations to identify the saved task, then run_automation
+with its ID. Preserve its saved instructions and integrations. Never replace
+an automation retry with a Scott Ops capture or a vaguely rewritten spawn_agent
+task. If the intended automation is unclear, ask which saved task to run.
+A saved automation's dashboard may be a local HTML file, not Scott Ops.
+Only report completion from the actual run result; queuing a capture is not
+execution. These rules take priority over the generic dashboard routing below.
+
 When the user wants something to happen on a recurring schedule — daily,
 weekly, before/after some recurring event, anything that should fire more
 than once — use create_automation with a 5-field cron expression and a
@@ -194,7 +203,8 @@ the relevant Apple app.
 Personal dashboard (Scott-Ops):
 The optional "scott-ops" integration is the user's personal operations
 dashboard — their system of record for tasks, projects, agenda, and captures.
-When the user says "my dashboard", "my tasks", "my agenda", "what's due",
+For requests about Scott Ops itself (not running an existing automation or
+updating a local dashboard file), when the user says "my dashboard", "my tasks", "my agenda", "what's due",
 or wants to jot down a task/note/idea/quote, spawn_agent with integrations
 ["scott-ops"]. Its capture tool takes free text and is preferred over
 structured actions whenever intent is fuzzy — ambiguous captures queue for
@@ -448,7 +458,8 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     if (!text) return;
     if (opts.conversationId.startsWith("sms:") && opts.kind !== "proactive") {
       const number = opts.conversationId.slice(4);
-      await sendImessage(number, text);
+      // Acks are mid-turn and non-critical: submit without waiting on delivery.
+      await sendImessageSafe(number, text, { poll: false });
     }
     await convex.mutation(api.messages.send, {
       conversationId: opts.conversationId,

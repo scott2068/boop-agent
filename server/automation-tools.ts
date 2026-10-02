@@ -2,7 +2,7 @@ import { z } from "zod";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { availableIntegrations } from "./execution-agent.js";
-import { nextRunFor, validateSchedule } from "./automations.js";
+import { nextRunFor, runAutomationNow, validateSchedule } from "./automations.js";
 import { describeUserNow } from "./timezone-config.js";
 import { createClaudeMcpServer } from "./runtimes/claude.js";
 import { defineRuntimeTool } from "./runtimes/tool.js";
@@ -112,6 +112,26 @@ Integrations available: ${integrationHint}`,
             `• [${a.automationId}] ${a.enabled ? "●" : "○"} "${a.name}" — ${a.schedule} — ${a.task}`,
         );
         return runtimeText(lines.join("\n"));
+      },
+    ),
+
+    defineRuntimeTool(
+      NAMESPACE,
+      "run_automation",
+      "Run or retry an existing saved automation now using its exact task and integrations. First use list_automations to find the ID. Executes the work and records its result; does not create a task/capture or change the schedule. Return the actual result to the user.",
+      { automationId: z.string() },
+      async ({ automationId }) => {
+        try {
+          const outcome = await runAutomationNow(automationId, conversationId);
+          return runtimeText(
+            outcome.success
+              ? `Automation run ${outcome.runId} completed.\n${outcome.result}`
+              : `Automation run ${outcome.runId} failed: ${outcome.error}`,
+            outcome.success,
+          );
+        } catch (error) {
+          return runtimeText(String(error), false);
+        }
       },
     ),
 

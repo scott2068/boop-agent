@@ -1,9 +1,11 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeImage, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, nativeImage, shell, clipboard } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const appLog = require("../scripts/log-store.cjs");
+appLog.installConsoleCapture("desktop");
 
 const isMac = process.platform === "darwin";
 const productName = "Boop";
@@ -284,6 +286,7 @@ function readConnectionStatus() {
 }
 
 function refreshConnectionStatus() {
+  appLog.configureSecrets(readRuntimeEnv());
   cachedConnectionStatus = readConnectionStatus();
   return cachedConnectionStatus;
 }
@@ -297,6 +300,10 @@ function plainStatus(value) {
 }
 
 function setStatus(partial) {
+  const previousState = status.state;
+  if (partial.webhook && partial.webhook !== status.webhook && /error|mismatch|missing|failed|no-tunnel/.test(partial.webhook)) {
+    appLog.append("warning", "webhook", `${partial.webhook}: ${partial.webhookDetails || ""}`);
+  }
   Object.assign(status, connectionStatus(), partial, { runtimeRoot });
   const ready =
     status.server === "running" &&
@@ -304,6 +311,9 @@ function setStatus(partial) {
     status.dashboard === "running";
   if (ready && status.state !== "error" && status.state !== "setup-required") {
     status.state = "running";
+  }
+  if (status.state !== previousState) {
+    appLog.append(status.state === "error" || status.state === "setup-required" ? "error" : "info", "desktop", `Boop ${status.state}: ${partial.lastMessage || ""}`);
   }
   updateMenus();
   for (const window of BrowserWindow.getAllWindows()) {
@@ -504,6 +514,47 @@ function openDashboardInWindow() {
   showMainWindow();
 }
 
+function openLogs() {
+  if (!mainWindow) {
+    createWindow();
+    mainWindow.webContents.once("did-finish-load", () => mainWindow.webContents.send("boop-open-logs"));
+  } else {
+    mainWindow.webContents.send("boop-open-logs");
+  }
+  showMainWindow();
+}
+
+ipcMain.handle("boop:open-logs", openLogs);
+ipcMain.handle("boop:read-logs", (event, options) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame.url !== pathToFileURL(path.join(__dirname, "status.html")).href) throw new Error("Logs are only available in the local desktop app.");
+  return appLog.read(options || {});
+});
+ipcMain.handle("boop:copy-log", (event, text) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame.url !== pathToFileURL(path.join(__dirname, "status.html")).href) throw new Error("Clipboard access is only available in the local desktop app.");
+  if (typeof text !== "string" || text.length > 5_000_000) throw new Error("Invalid log text.");
+  clipboard.writeText(text);
+  if (clipboard.readText() !== text) throw new Error("The clipboard could not be updated.");
+  return true;
+});
+ipcMain.handle("boop:show-log-folder", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  shell.showItemInFolder(appLog.logPath);
+});
+
+app.on("web-contents-created", (_event, contents) => {
+  contents.on("console-message", (event) => {
+    if (event.level === "warning" || event.level === "error") {
+      appLog.append(event.level, "desktop-ui", event.message);
+    }
+  });
+  contents.on("render-process-gone", (_event, details) => {
+    appLog.append("error", "desktop-ui", `Renderer stopped: ${details.reason} (exit ${details.exitCode})`);
+  });
+  contents.on("did-fail-load", (_event, code, description) => {
+    if (code !== -3) appLog.append("error", "desktop-ui", `Page failed to load: ${description} (${code})`);
+  });
+});
+
 function statusMenuTemplate() {
   const canOpenDashboard = status.dashboard === "running" && Boolean(status.dashboardUrl);
   const canStop = Boolean(boopProcess || bootstrapProcess || starting);
@@ -522,6 +573,7 @@ function statusMenuTemplate() {
       click: openDashboardInWindow,
     },
     { label: "Show Boop", click: loadStatusPage },
+    { label: "Open Logs", accelerator: "CmdOrCtrl+Shift+L", click: openLogs },
     {
       label: "Check Sendblue Webhook",
       enabled: Boolean(status.expectedWebhookUrl || status.publicUrl),
@@ -581,6 +633,12 @@ function stripAnsi(value) {
 function ingestLine(line) {
   const plain = stripAnsi(line).trim();
   if (!plain) return;
+  const service = plain.match(/^(\w+)\s+│/)?.[1] || "runtime";
+  if (service === "debug" && status.state === "starting" && /http proxy error/.test(plain)) {
+    appLog.append("info", "startup", plain);
+  } else {
+    appLog.captureLine(service, plain);
+  }
   if (
     intentionalStop &&
     (/^ngrok\s+│/.test(plain) || /obj=tunnels\.session|command_line/.test(plain)) &&

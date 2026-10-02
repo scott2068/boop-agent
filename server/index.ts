@@ -1,4 +1,6 @@
 import "./env-setup.js";
+import "./log-setup.js";
+import { appLog } from "./app-log.js";
 import express from "express";
 import cors from "cors";
 import { createServer } from "node:http";
@@ -64,6 +66,12 @@ async function main() {
     res.status(404).json({ error: "not found" });
   });
   app.use(cors());
+  app.use((req, res, next) => {
+    res.on("finish", () => {
+      if (res.statusCode >= 400) appLog.append(res.statusCode >= 500 ? "error" : "warning", "http", `${req.method} ${req.path}: HTTP ${res.statusCode}`);
+    });
+    next();
+  });
   // Composio webhook receiver must read raw bytes for HMAC verification, so
   // its body parser is mounted BEFORE the global express.json. Without this
   // ordering the JSON parser consumes the stream first and the raw buffer

@@ -1,3 +1,4 @@
+let pendingOpenLogs = false;
 const fields = {
   message: document.getElementById("message"),
   runtimeRoot: document.getElementById("runtime-root"),
@@ -55,9 +56,13 @@ function dashboardStatus(status) {
 }
 
 function postStatusToDashboard(status = lastStatus) {
-  if (!status || !fields.dashboardFrame.contentWindow) return;
+  if (!status || !fields.dashboardFrame.contentWindow || fields.dashboardFrame.dataset.ready !== "true") return;
   const targetOrigin = dashboardOrigin();
   if (!targetOrigin) return;
+  if (pendingOpenLogs) {
+    fields.dashboardFrame.contentWindow.postMessage({ type: "boop-open-logs" }, targetOrigin);
+    pendingOpenLogs = false;
+  }
   fields.dashboardFrame.contentWindow.postMessage(
     {
       type: "boop-desktop-status",
@@ -71,6 +76,7 @@ function showDashboard(url) {
   const nextUrl = normalizeUrl(url);
   if (!nextUrl) return;
   if (fields.dashboardFrame.dataset.url !== nextUrl) {
+    fields.dashboardFrame.dataset.ready = "false";
     fields.dashboardFrame.src = nextUrl;
     fields.dashboardFrame.dataset.url = nextUrl;
   }
@@ -80,6 +86,7 @@ function showDashboard(url) {
 }
 
 function hideDashboard() {
+  fields.dashboardFrame.dataset.ready = "false";
   fields.dashboardFrame.classList.remove("visible");
   fields.dashboardEmpty.classList.remove("hidden");
   fields.dashboardFrame.removeAttribute("src");
@@ -218,6 +225,10 @@ function optimisticForAction(action) {
 }
 
 async function handleDashboardAction(action) {
+  if (action === "openLogs") {
+    await window.boopDesktop.openLogs();
+    return;
+  }
   if (action === "status") {
     postStatusToDashboard();
     return;
@@ -243,6 +254,10 @@ async function handleDashboardAction(action) {
 
 refreshStatus();
 window.boopDesktop.onStatus(render);
+window.boopDesktop.onOpenLogs(() => {
+  pendingOpenLogs = true;
+  postStatusToDashboard();
+});
 window.boopDesktop.onOpenDashboard(showDashboard);
 fields.dashboardFrame.addEventListener("load", () => postStatusToDashboard());
 
@@ -250,7 +265,19 @@ window.addEventListener("message", (event) => {
   if (event.source !== fields.dashboardFrame.contentWindow) return;
   if (!dashboardOrigin() || event.origin !== dashboardOrigin()) return;
   const data = event.data || {};
+  if ((data.type === "boop-read-logs" || data.type === "boop-copy-log") && typeof data.id === "string") {
+    const target = event.source;
+    const origin = event.origin;
+    const request = data.type === "boop-copy-log" ? window.boopDesktop.copyLog(data.text) : window.boopDesktop.readLogs(data.options);
+    request.then(
+      result => target.postMessage({ type: "boop-log-result", id: data.id, result }, origin),
+      error => target.postMessage({ type: "boop-log-result", id: data.id, error: error.message }, origin),
+    );
+    return;
+  }
+  if (data.type === "boop-show-log-folder") { window.boopDesktop.showLogFolder(); return; }
   if (data.type === "boop-desktop-status-request") {
+    fields.dashboardFrame.dataset.ready = "true";
     postStatusToDashboard();
     return;
   }

@@ -32,6 +32,7 @@ const STATUS_COLOR: Record<string, { dot: string; text: string }> = {
 
 export function AutomationsPanel({ isDark }: { isDark: boolean }) {
   const automations = useQuery(api.automations.listForDashboard, {});
+  const recentRuns = useQuery(api.automations.recentRunsForDashboard, { limit: 100 });
   const setEnabled = useMutation(api.automations.setEnabled);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -137,6 +138,9 @@ export function AutomationsPanel({ isDark }: { isDark: boolean }) {
                 }`}
               >
                 {auto.lastRunAt && <span>Last run: {timeAgo(auto.lastRunAt)}</span>}
+                {recentRuns?.find((run) => run.automationId === auto.automationId)?.status === "failed" && (
+                  <span className="text-rose-500">Last run failed — open for details</span>
+                )}
                 {auto.nextRunAt && auto.enabled && (
                   <span>
                     Next:{" "}
@@ -356,11 +360,7 @@ function AutomationDetail({
                         isDark ? "text-slate-400" : "text-slate-600"
                       }`}
                     >
-                      {run.result
-                        ? run.result.slice(0, 120)
-                        : run.error
-                          ? run.error.slice(0, 120)
-                          : "—"}
+                      {run.error || (run.result ? run.result.slice(0, 120) : "—")}
                     </span>
                     <span
                       className={`text-[10px] mono shrink-0 ${
@@ -370,6 +370,11 @@ function AutomationDetail({
                       {run.startedAt ? timeAgo(run.startedAt) : ""}
                     </span>
                   </div>
+                  {run.error && (
+                    <p role="alert" className="mt-2 text-xs text-rose-500 whitespace-pre-wrap break-words">
+                      {run.error}
+                    </p>
+                  )}
                 </div>
               );
             })}

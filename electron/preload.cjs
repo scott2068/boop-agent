@@ -1,6 +1,15 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("boopDesktop", {
+  copyLog: text => ipcRenderer.invoke("boop:copy-log", text),
+  readLogs: options => ipcRenderer.invoke("boop:read-logs", options),
+  showLogFolder: () => ipcRenderer.invoke("boop:show-log-folder"),
+  onOpenLogs: callback => {
+    const listener = () => callback();
+    ipcRenderer.on("boop-open-logs", listener);
+    return () => ipcRenderer.removeListener("boop-open-logs", listener);
+  },
+  openLogs: () => ipcRenderer.invoke("boop:open-logs"),
   getStatus: () => ipcRenderer.invoke("boop:get-status"),
   start: () => ipcRenderer.invoke("boop:start"),
   stop: () => ipcRenderer.invoke("boop:stop"),

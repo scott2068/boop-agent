@@ -287,7 +287,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
       durationMs: Date.now() - agentStart,
     });
   }
-  broadcast("agent_done", { agentId, status, result: streamedText.slice(0, 200) });
+  broadcast("agent_done", { agentId, status, error: errorMsg, result: streamedText.slice(0, 200) });
 
   return { agentId, result: streamedText || errorMsg || "(no output)", status };
 }

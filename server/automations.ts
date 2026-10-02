@@ -45,7 +45,7 @@ async function runAutomation(a: {
   timezone?: string;
   conversationId?: string;
   notifyConversationId?: string;
-}): Promise<void> {
+}, manual = false): Promise<{ success: boolean; runId: string; result?: string; error?: string }> {
   const runId = randomId("run");
   await convex.mutation(api.automations.createRun, {
     runId,
@@ -61,14 +61,18 @@ async function runAutomation(a: {
   // notify with slightly different (or stale) results. Advancing it now closes
   // that window; a failed run still won't retry sooner than its next schedule,
   // matching prior behavior.
-  const tz = a.timezone ?? (await getUserTimezone());
-  const next = nextRunFor(a.schedule, tz);
-  await convex.mutation(api.automations.markRan, {
-    automationId: a.automationId,
-    lastRunAt: Date.now(),
-    nextRunAt: next ?? undefined,
-  });
+  if (!manual) {
+    const tz = a.timezone ?? (await getUserTimezone());
+    const next = nextRunFor(a.schedule, tz);
+    await convex.mutation(api.automations.markRan, {
+      automationId: a.automationId,
+      lastRunAt: Date.now(),
+      nextRunAt: next ?? undefined,
+    });
+  }
 
+  let result: string | undefined;
+  let agentId: string | undefined;
   try {
     const res = await spawnExecutionAgent({
       task: `AUTOMATION "${a.name}": ${a.task}`,
@@ -76,14 +80,14 @@ async function runAutomation(a: {
       conversationId: a.conversationId,
       name: `auto:${a.name}`,
     });
-    await convex.mutation(api.automations.updateRun, {
-      runId,
-      status: res.status === "completed" ? "completed" : "failed",
-      result: res.result,
-      agentId: res.agentId,
-    });
+    result = res.result;
+    agentId = res.agentId;
+    if (res.status !== "completed") throw new Error(`Automation generation ${res.status}: ${res.result ?? "no result"}`);
+    if (!res.result?.trim() || res.result.trim() === "(no output)") {
+      throw new Error("Automation generated no update to deliver.");
+    }
 
-    if (a.notifyConversationId && res.result) {
+    if (!manual && a.notifyConversationId && res.result) {
       if (a.notifyConversationId.startsWith("sms:")) {
         const number = a.notifyConversationId.slice(4);
         const preamble = `[${a.name}]\n\n`;
@@ -96,15 +100,35 @@ async function runAutomation(a: {
       });
     }
 
+    await convex.mutation(api.automations.updateRun, {
+      runId,
+      status: "completed",
+      result,
+      agentId,
+    });
     broadcast("automation_completed", { automationId: a.automationId, runId });
+    return { success: true, runId, result };
   } catch (err) {
     await convex.mutation(api.automations.updateRun, {
       runId,
       status: "failed",
+      result,
+      agentId,
       error: String(err),
     });
     broadcast("automation_failed", { automationId: a.automationId, runId, error: String(err) });
+    return { success: false, runId, result, error: String(err) };
   }
+}
+
+// Manual runs reply through the requesting dispatcher; do not also send a
+// scheduled notification or move the next scheduled occurrence.
+export async function runAutomationNow(automationId: string, conversationId: string) {
+  const automation = await convex.query(api.automations.get, { automationId });
+  if (!automation || automation.conversationId !== conversationId) {
+    throw new Error("Automation not found in this conversation.");
+  }
+  return runAutomation(automation, true);
 }
 
 export async function tickAutomations(): Promise<void> {

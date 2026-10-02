@@ -31,7 +31,7 @@ describe("sendImessage", () => {
     process.env.SENDBLUE_FROM_NUMBER = ["+", "1", "555", "000", "0100"].join("");
     const recipient = ["+", "1", "555", "000", "0101"].join("");
     const leakedPhone = ["+", "1", "555", "555", "0102"].join("");
-    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: "DELIVERED" }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await sendImessage(recipient, `Call ${leakedPhone}`);
