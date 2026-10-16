@@ -1,4 +1,13 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeImage, shell, clipboard } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  Notification,
+  ipcMain,
+  nativeImage,
+  shell,
+  clipboard,
+} = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -909,6 +918,104 @@ function restartBoop() {
   setTimeout(startBoop, 700);
 }
 
+// Watchdog: `convex dev` can stay alive after the local backend it spawned has
+// died, so the child "exit" handler never fires while every webhook, automation
+// and heartbeat fails against a dead port 3210. Probe Convex and the server
+// directly; after a few consecutive failures restart Boop, and if restarts
+// keep failing, stop retrying and tell the user (desktop + iMessage).
+const HEALTH_INTERVAL_MS = 60_000;
+const HEALTH_FAILURES_BEFORE_RESTART = 3;
+const HEALTH_MAX_RESTARTS = 3;
+const HEALTH_RESTART_WINDOW_MS = 30 * 60_000;
+let healthTimer;
+let healthFailures = 0;
+let healthRestarts = [];
+let healthRecovering = false;
+let healthGaveUp = false;
+
+async function probe(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function notifyDesktop(title, body) {
+  appLog.append("warning", "watchdog", `${title}: ${body}`);
+  if (Notification.isSupported()) new Notification({ title, body }).show();
+}
+
+async function notifyPhone(text) {
+  const env = readRuntimeEnv();
+  const to = env.BOOP_USER_PHONE;
+  if (!env.SENDBLUE_API_KEY || !env.SENDBLUE_API_SECRET || !env.SENDBLUE_FROM_NUMBER || !to) return;
+  try {
+    await fetch("https://api.sendblue.com/api/send-message", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "sb-api-key-id": env.SENDBLUE_API_KEY,
+        "sb-api-secret-key": env.SENDBLUE_API_SECRET,
+      },
+      body: JSON.stringify({ number: to, from_number: env.SENDBLUE_FROM_NUMBER, content: text }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (error) {
+    appLog.append("error", "watchdog", `Could not text alert: ${error instanceof Error ? error.message : error}`);
+  }
+}
+
+async function checkHealth() {
+  // Only watch a Boop that was healthy, or one we restarted that hasn't come
+  // back yet. A user-initiated stop is left alone.
+  if (quitting || starting || status.state === "stopped") return;
+  if (status.state !== "running" && !healthRecovering) return;
+  const env = readRuntimeEnv();
+  const convexUrl = (status.convexUrl || "http://127.0.0.1:3210").replace(/\/$/, "");
+  const [convexOk, serverOk] = await Promise.all([
+    probe(`${convexUrl}/version`),
+    probe(`http://localhost:${env.PORT || 3456}/health`),
+  ]);
+
+  if (convexOk && serverOk) {
+    if (healthRecovering || healthGaveUp) {
+      notifyDesktop("Boop recovered", "Messages and automations are working again.");
+      if (healthGaveUp) notifyPhone("Boop is back online. Messages sent while it was down may need resending.");
+    }
+    healthFailures = 0;
+    healthRecovering = false;
+    healthGaveUp = false;
+    return;
+  }
+
+  healthFailures += 1;
+  const down = [!convexOk && "Convex backend", !serverOk && "server"].filter(Boolean).join(" and ");
+  appLog.append("warning", "watchdog", `${down} not responding (${healthFailures}/${HEALTH_FAILURES_BEFORE_RESTART})`);
+  if (healthFailures < HEALTH_FAILURES_BEFORE_RESTART || healthGaveUp) return;
+
+  const now = Date.now();
+  healthRestarts = healthRestarts.filter((at) => now - at < HEALTH_RESTART_WINDOW_MS);
+  if (healthRestarts.length >= HEALTH_MAX_RESTARTS) {
+    healthGaveUp = true;
+    notifyDesktop("Boop needs attention", `The ${down} keeps failing after ${HEALTH_MAX_RESTARTS} restarts.`);
+    notifyPhone(`Boop is down: the ${down} keeps failing after ${HEALTH_MAX_RESTARTS} automatic restarts. Messages and briefings won't work until it's fixed.`);
+    return;
+  }
+
+  healthRestarts.push(now);
+  healthFailures = 0;
+  healthRecovering = true;
+  notifyDesktop("Restarting Boop", `The ${down} stopped responding.`);
+  restartBoop();
+}
+
+function startHealthWatchdog() {
+  clearInterval(healthTimer);
+  healthTimer = setInterval(checkHealth, HEALTH_INTERVAL_MS);
+}
+
 ipcMain.handle("boop:get-status", () => status);
 ipcMain.handle("boop:start", async () => {
   await startBoop();
@@ -940,6 +1047,7 @@ app.whenReady().then(() => {
 
   createWindow();
   startBoop();
+  startHealthWatchdog();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -949,6 +1057,7 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   quitting = true;
+  clearInterval(healthTimer);
   stopBoop();
 });
 
