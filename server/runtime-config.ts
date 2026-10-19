@@ -1,6 +1,8 @@
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
-import type { RuntimeName, RuntimeReasoningEffort } from "./runtimes/types.js";
+import { CODEX_DEFAULT_MODEL, type RuntimeName, type RuntimeReasoningEffort } from "./runtimes/types.js";
+
+export { CODEX_DEFAULT_MODEL };
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -93,6 +95,9 @@ export const KNOWN_MODELS = new Set<string>([
 ]);
 
 export const CODEX_MODEL_ALIASES: Record<string, string> = {
+  default: CODEX_DEFAULT_MODEL,
+  auto: CODEX_DEFAULT_MODEL,
+  latest: CODEX_DEFAULT_MODEL,
   "5.5": "gpt-5.5",
   "gpt 5.5": "gpt-5.5",
   "gpt-5.5": "gpt-5.5",
@@ -108,6 +113,7 @@ export const CODEX_MODEL_ALIASES: Record<string, string> = {
 };
 
 export const KNOWN_CODEX_MODELS = new Set<string>([
+  CODEX_DEFAULT_MODEL,
   "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
@@ -150,7 +156,7 @@ function claudeEnvFallback(): string {
 }
 
 function codexEnvFallback(): string {
-  return process.env.BOOP_CODEX_MODEL ?? "gpt-5.5";
+  return process.env.BOOP_CODEX_MODEL ?? CODEX_DEFAULT_MODEL;
 }
 
 function resolveReasoningEffort(input: string | null): RuntimeReasoningEffort {

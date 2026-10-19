@@ -81,6 +81,7 @@ const CLAUDE_MODELS: Option[] = [
 ];
 
 const CODEX_MODELS: Option[] = [
+  { value: "default", label: "Codex default (recommended)" },
   { value: "gpt-5.5", label: "GPT-5.5" },
   { value: "gpt-5.4", label: "GPT-5.4" },
   { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },

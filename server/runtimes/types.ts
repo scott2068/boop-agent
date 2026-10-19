@@ -5,6 +5,14 @@ export type RuntimeName = "claude" | "codex";
 export type RuntimeReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 export type RuntimeMode = "dispatcher" | "execution" | "background";
 
+// "default" omits the model from Codex requests so the CLI picks the account's
+// current default. Pinned IDs break when OpenAI retires them; this doesn't.
+export const CODEX_DEFAULT_MODEL = "default";
+
+export function isCodexDefaultModel(model: string | undefined | null): boolean {
+  return !model || model === CODEX_DEFAULT_MODEL;
+}
+
 export type RuntimeImageBlock = {
   type: "image";
   source: { type: "base64"; media_type: string; data: string };

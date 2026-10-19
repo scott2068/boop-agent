@@ -26,7 +26,13 @@ import type { ThreadStartResponse } from "./codex-app-server-protocol/v2/ThreadS
 import type { TurnStartParams } from "./codex-app-server-protocol/v2/TurnStartParams.js";
 import type { TurnStartResponse } from "./codex-app-server-protocol/v2/TurnStartResponse.js";
 import type { UserInput } from "./codex-app-server-protocol/v2/UserInput.js";
-import type { RuntimeRunRequest, RuntimeRunResult, RuntimeTool } from "./types.js";
+import {
+  CODEX_DEFAULT_MODEL,
+  isCodexDefaultModel,
+  type RuntimeRunRequest,
+  type RuntimeRunResult,
+  type RuntimeTool,
+} from "./types.js";
 import { EMPTY_USAGE, estimateOpenAiCostUsd, type UsageTotals } from "../usage.js";
 import { formatError } from "../error-format.js";
 
@@ -77,7 +83,6 @@ function createIsolatedCodexHome(): string {
   writeFileSync(
     join(codexHome, "config.toml"),
     [
-      'model = "gpt-5.5"',
       'approval_policy = "never"',
       'sandbox_mode = "read-only"',
       'web_search = "disabled"',
@@ -276,6 +281,7 @@ class CodexAppServerClient {
     this.reply = "";
     this.currentAgentMessageId = "";
     this.currentAgentMessageText = "";
+    const requestedModel = isCodexDefaultModel(request.model) ? undefined : request.model;
     this.usage = { ...EMPTY_USAGE, model: request.model };
     const spawned = spawnCodexAppServer();
     this.child = spawned.child;
@@ -321,7 +327,7 @@ class CodexAppServerClient {
       });
       this.notify({ method: "initialized" });
       const threadResponse = await this.call("thread/start", {
-        model: request.model,
+        model: requestedModel,
         cwd: request.cwd ?? join(spawned.codexHome, "workspace"),
         approvalPolicy: "never",
         sandbox: codexSandboxModeForMode(request.mode),
@@ -338,6 +344,8 @@ class CodexAppServerClient {
         persistExtendedHistory: false,
       });
       const threadId = String(threadResponse.thread.id);
+      // With the default model, Codex tells us which one it actually picked.
+      this.usage.model = threadResponse.model || request.model;
       const turnWait = this.waitForTurn();
       const turnCompletion = this.turnCompletion;
       const turnResponse = await this.call("turn/start", {
@@ -345,7 +353,7 @@ class CodexAppServerClient {
         input: codexInputForPrompt(request.prompt),
         approvalPolicy: "never",
         sandboxPolicy: codexSandboxForMode(request.mode),
-        model: request.model,
+        model: requestedModel,
         effort: codexReasoningEffort(request.reasoningEffort),
       });
       const turnId = String(turnResponse.turn.id);
@@ -437,7 +445,7 @@ class CodexAppServerClient {
       const usage = message.params.tokenUsage.total;
       if (usage) {
         const nextUsage: UsageTotals = {
-          model: this.request?.model ?? this.usage.model,
+          model: this.usage.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           cacheReadTokens: usage.cachedInputTokens,
@@ -544,8 +552,23 @@ class CodexAppServerClient {
   }
 }
 
+const UNSUPPORTED_MODEL_PATTERN =
+  /model.{0,80}(not supported|not found|does not exist|deprecated|no longer available)|model_not_found/i;
+
 export async function runCodexAppServerAgent(
   request: RuntimeRunRequest,
 ): Promise<RuntimeRunResult> {
-  return new CodexAppServerClient().run(request);
+  try {
+    return await new CodexAppServerClient().run(request);
+  } catch (err) {
+    // A pinned model that OpenAI retired fails before any tool runs, so it's
+    // safe to retry once on the account's default instead of failing the run.
+    if (isCodexDefaultModel(request.model) || !UNSUPPORTED_MODEL_PATTERN.test(String(err))) {
+      throw err;
+    }
+    console.warn(
+      `[codex-app-server] model "${request.model}" rejected; retrying with Codex default. Update the Codex model setting to stop this warning.`,
+    );
+    return new CodexAppServerClient().run({ ...request, model: CODEX_DEFAULT_MODEL });
+  }
 }

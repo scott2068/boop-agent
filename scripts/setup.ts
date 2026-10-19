@@ -13,7 +13,7 @@ const EXAMPLE_PATH = resolve(ROOT, ".env.example");
 type RuntimeChoice = "claude" | "codex";
 
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
-const DEFAULT_CODEX_MODEL = "gpt-5.5";
+const DEFAULT_CODEX_MODEL = "default";
 const DEFAULT_CODEX_REASONING_EFFORT = "medium";
 
 interface CommandSpec {
@@ -28,6 +28,7 @@ const CLAUDE_MODEL_CHOICES = [
 ];
 
 const CODEX_MODEL_CHOICES = [
+  { title: "default (recommended — follows your Codex account's current model)", value: "default" },
   { title: "gpt-5.5 (most capable)", value: "gpt-5.5" },
   { title: "gpt-5.4-mini (faster local testing)", value: "gpt-5.4-mini" },
   { title: "gpt-5.4 (balanced)", value: "gpt-5.4" },

@@ -11,6 +11,7 @@ import { createClaudeMcpServer } from "./runtimes/claude.js";
 import { defineRuntimeTool } from "./runtimes/tool.js";
 import { runtimeText, type RuntimeReasoningEffort, type RuntimeTool } from "./runtimes/types.js";
 import {
+  CODEX_DEFAULT_MODEL,
   CODEX_MODEL_ALIASES,
   KNOWN_CODEX_MODELS,
   KNOWN_MODELS,
@@ -52,7 +53,7 @@ export function createSelfTools(): RuntimeTool[] {
           reasoningEffort: runtime.reasoningEffort ?? null,
           billingMode: runtime.billingMode,
           claudeEnvDefault: process.env.BOOP_MODEL ?? "claude-sonnet-4-6",
-          codexEnvDefault: process.env.BOOP_CODEX_MODEL ?? "gpt-5.5",
+          codexEnvDefault: process.env.BOOP_CODEX_MODEL ?? CODEX_DEFAULT_MODEL,
           availableClaudeModels: [...KNOWN_MODELS],
           availableCodexModels: [...KNOWN_CODEX_MODELS],
           userTimezone: tzInfo.isExplicit ? tzInfo.timezone : null,
